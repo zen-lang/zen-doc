@@ -56,21 +56,21 @@
 (defn edn [ctx x]
   (cond
     (map? x) [:div {:class (c :flex)}
-              [:div {:class (c [:text :gray-300] :bold [:mx 1])} "{"]
+              [:div {:class (c [:text :gray-500] :bold [:mx 1])} "{"]
               [:div
                (for [[k v] x]
                  [:div {:class (c :flex [:ml 2])}
                   (edn ctx k) (edn ctx v)])]]
     (set? x) [:div {:class (c :flex)}
-              [:div {:class (c [:text :gray-300] :bold [:mx 1])} "{"]
+              [:div {:class (c [:text :gray-500] :bold [:mx 1])} "#{"]
               (for [v x]
                 [:div {:class (c :flex [:ml 2])} (edn ctx v)])]
     (sequential? x) [:div {:class (c :flex)}
-                     [:div {:class (c [:text :gray-300] :bold [:mx 1])} "["]
+                     [:div {:class (c [:text :gray-500] :bold [:mx 1])} "["]
                      [:div
                       (for [[idx v] (map-indexed (fn [i x] [i x]) x)]
                         [:div {:class (c :flex [:ml 2])}
-                         [:div {:class (c [:text :gray-300] :bold [:mx 1])} (str "[" idx "]")]
+                         [:div {:class (c [:text :gray-500] :bold [:mx 1])} (str "[" idx "]")]
                          (edn ctx v)])]]
     (number? x) [:div {:class (c [:text :orange-600])} x]
     (string? x) [:div {:class (c [:text :yellow-700])} (pr-str x)]
