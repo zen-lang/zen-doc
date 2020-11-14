@@ -6,18 +6,21 @@
    [hiccup.core]
    [ring.util.response]
    [stylo.core :refer [c]]
-   [hiccup.core]
    [route-map.core]
    [org.httpkit.server]
    [clojure.string :as str]))
+
+(def h2 (c :border-b [:py 2] :font-bold))
+
+(defn url [& pth]
+  (str "/" (str/join "/" pth)))
+
 
 (defn layout [{ztx :ztx} & content]
   (hiccup.core/html
    [:html
     [:head
      [:meta {:charset "utf-8"}]
-     [:link {:href "//cdnjs.cloudflare.com/ajax/libs/font-awesome/5.11.2/css/all.min.css" :rel "stylesheet"}]
-     [:link {:href "//fonts.googleapis.com/css?family=Montserrat|Roboto&display=swap" :rel "stylesheet"}]
      [:style (stylo.core/compile-styles @stylo.core/styles)]
      [:title "zen"]]
     [:body {:class (c [:p 0])}
@@ -62,6 +65,7 @@
                         [:div {:class (c :flex [:ml 2])}
                          [:div {:class (c [:text :gray-300] :bold [:mx 1])} (str "[" idx "]")]
                          (edn v)])]]
+    (number? x) [:div {:class (c [:text :orange-600])} x]
     (string? x) [:div {:class (c [:text :yellow-700])} (pr-str x)]
     (keyword? x) [:b {:class (c [:mr 2] :font-bold [:text :green-700])
                       :title (pr-str (meta x))}
@@ -131,13 +135,6 @@
       (-> (ring.util.response/resource-response path opts)
           (ring.middleware.head/head-response req)))))
 
-(def h2 (c :border-b [:py 2] :font-bold))
-
-
-(defn url [& pth]
-  (str "/" (str/join "/" pth)))
-
-(route-map.core/match [:get "/tags"] routes)
 
 (defn dispatch [{ztx :ztx :as ctx} {uri :uri meth :request-method :as req}]
   (or (handle-static req)
@@ -153,11 +150,14 @@
 
 
 (comment
-  (defonce ctx (atom {}))
+  (do
+    (defonce ctx (atom {}))
 
-  (do (swap! ctx (fn [x] (assoc x :self ctx))) :ok)
-  (do (swap! ctx assoc :ztx (zen.core/new-context)) :ok)
-  (zen.core/read-ns (:ztx @ctx) 'zen.tests.schema)
+    (do (swap! ctx (fn [x] (assoc x :self ctx))) :ok)
+    (do (swap! ctx assoc :ztx (zen.core/new-context)) :ok)
+    (zen.core/read-ns (:ztx @ctx) 'zen.tests.schema)
+
+    )
 
 
   (:ztx @ctx)
