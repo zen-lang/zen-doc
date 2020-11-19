@@ -9,7 +9,8 @@
    [route-map.core]
    [clojure.java.shell]
    [org.httpkit.server]
-   [clojure.string :as str]))
+   [clojure.string :as str])
+  (:gen-class))
 
 (def h2 (c :border-b [:py 2] :font-bold))
 
@@ -26,7 +27,9 @@
      [:title "zen"]]
     [:body {:class (c [:p 0])}
      [:div {:class (c :flex [:space-x 6])}
-      [:div {:class (c :border [:px 4] [:py 2] [:w 70]  :text-sm [:text :gray-700] [:bg :gray-100])}
+      [:div {:class (c :border [:px 4]
+                       [:py 2]
+                       [:w 80]  :text-sm [:text :gray-700] [:bg :gray-100])}
        [:h2 {:class h2} "Tags"]
        [:div {:class (c [:pl 2])}
         (for [[ns _] (->> (:tags @ztx) (sort-by first))]
@@ -46,12 +49,10 @@
 (defn index [{ztx :ztx} req]
   [:div "index"])
 
-
 (defn zen-css [_ _]
   {:status 200
    :body (stylo.core/compile-styles @stylo.core/styles)
    :headers {"content-type" "text/css"}})
-
 
 (defn edn [ctx x]
   (cond
@@ -205,8 +206,12 @@
 
         (string? k) (gen-route ctx (conj pth k) params v)))))
 
-(defn build [ctx]
+(defn build [{base-url :base-url ns :ns :as ctx}]
   (gen-route ctx [] {} routes))
+
+
+(defn -main [& args]
+  (println "Hello"))
 
 (comment
   (do
