@@ -13,6 +13,7 @@
         garden/garden {:mvn/version "1.3.10"}
         com.atlassian.commonmark/commonmark {:mvn/version "0.15.0"}
         com.atlassian.commonmark/commonmark-ext-gfm-tables {:mvn/version "0.15.0"}
+
         }
 
  :aliases

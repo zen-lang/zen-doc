@@ -1,13 +1,37 @@
 {ns zen.doc
 
- view {:zen/tags #{zen/tag zen/schema}
-       :zen/desc "Register view for specific tags"
-       :type zen/map
-       :values {:type zen/any}}
+ page-engine {:zen/tags #{zen/tag}
+              :zen/desc "Register page engine"}
 
- schema {:zen/tags #{view}}
+ tag-view {:zen/tags #{zen/tag zen/schema}
+           :zen/desc "Register view for specific tag"
+           :type zen/map
+           :require #{:tag :title :slag}
+           :keys {:tag   {:type zen/sybol :tags #{zen/tag}}
+                  :width {:type zen/integer}
+                  :slag  {:type zen/string}
+                  :title {:type zen/string}}}
 
- page-engine #{:zen/tags #{zen/tag}}
+ view-for-schema
+ {:zen/tags #{tag-view}
+  :tag zen/schema
+  :width 0
+  :slag "schema"
+  :title "Schema"}
+
+ view-for-valueset
+ {:zen/tags #{tag-view}
+  :tag zen/valueset
+  :width 0
+  :slag "valueset"
+  :title "Valueset"}
+
+ view-for-tag
+ {:zen/tags #{tag-view}
+  :tag zen/tag
+  :width 0
+  :slag "tag"
+  :title "Tag"}
 
  md {:zen/tags #{page-engine zen/schema}
      :type zen/map

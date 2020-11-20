@@ -5,6 +5,7 @@
    [ring.util.codec]
    [hiccup.core]
    [ring.util.response]
+   [clojure.walk]
    [stylo.core :refer [c]]
    [route-map.core]
    [clojure.java.shell]
@@ -15,6 +16,9 @@
   (:gen-class))
 
 (def h2 (c :border-b [:py 2] :font-bold))
+
+(defn cls [& xs]
+  (->> xs (filter identity) (map name) (str/join " ")))
 
 (defn url [ctx pth & [ext]]
   (str (or (:base-url @ctx) "") "/" (str/join "/" pth) (when ext (str "." (name ext)))))
@@ -36,11 +40,14 @@
                 [:div {:class (c :flex [:ml 2])} (edn ctx v)])]
     (sequential? x) [:div {:class (c :flex)}
                      [:div {:class (c [:text :gray-500] :bold [:mx 1])} "["]
-                     [:div
-                      (for [[idx v] (map-indexed (fn [i x] [i x]) x)]
-                        [:div {:class (c :flex [:ml 2])}
-                         [:div {:class (c [:text :gray-500] :bold [:mx 1])} (str "[" idx "]")]
-                         (edn ctx v)])]]
+                     (if (or (keyword? (first x))
+                             (symbol? (first x)))
+                       [:div {:class (c [:text :green-700] :bold [:mx 1])} (str  (str/join " " x) "]")]
+                       [:div
+                        (for [[idx v] (map-indexed (fn [i x] [i x]) x)]
+                          [:div {:class (c :flex [:ml 2])}
+                           [:div {:class (c [:text :gray-500] :bold [:mx 1])} (str "[" idx "]")]
+                           (edn ctx v)])])]
     (number? x) [:div {:class (c [:text :orange-600])} x]
     (string? x) [:div {:class (c [:text :yellow-700])} (pr-str x)]
     (keyword? x) [:b {:class (c [:mr 2] :font-bold [:text :green-700])
@@ -61,12 +68,14 @@
                               (contains? tgs 'zen/type)     (c  [:bg :green-400])
                               (contains? tgs 'zen/tag)      (c  [:bg :orange-300])
                               (contains? tgs 'zen/property) (c  [:bg :blue-300])
+                              (contains? tgs 'zen/valueset) (c  [:bg :pink-300])
                               (contains? tgs 'zen/schema)   (c  [:bg :green-300])
                               :else                         (c :border [:bg :gray-300]))]))
            :title (str/join " " tgs)}
      (cond
          (contains? tgs 'zen/tag) "#"
          (contains? tgs 'zen/type)  "T"
+         (contains? tgs 'zen/valueset)  "V"
          (contains? tgs 'zen/schema) "S")]))
 
 (defn render-tree [ctx syms]
@@ -124,7 +133,7 @@
        (top-menu ctx)
        [:div {:class (c :flex [:space-x 6])}
         (left-sidebar ctx)
-        [:div {:class (c [:p 4])} content]]]])))
+        [:div {:class (c [:p 4] :flex-1)} content]]]])))
 
 (defmulti render-page (fn [_ {tp :type}] tp))
 
@@ -188,6 +197,9 @@
                             (= tp 'zen/map) (c [:bg :green-300])
                             (= tp 'zen/case) (c [:bg :red-500])
                             (= tp 'zen/string) (c [:bg :orange-300])
+                            (= tp 'zen/datetime) (c [:bg :orange-300])
+                            (= tp 'zen/date) (c [:bg :orange-300])
+                            (= tp 'zen/boolean) (c [:bg :orange-300])
                             (= tp 'zen/keyword) (c [:bg :orange-300])
                             (= tp 'zen/number) (c [:bg :orange-300])
                             :else  (c [:bg :gray-300]))]))}
@@ -198,30 +210,36 @@
      :else (first (last (str/split (str tp) #"/"))))])
 
 (defn render-zen-map [ctx sch]
-  (for [[k v] (:keys sch)]
-    [:div
-     [:div {:class (c :flex [:space-x 2] :items-center)}
-      (type-icon ctx (:type v))
-      [:b {:class (c {:font-weight "500"})}
-       (if (keyword? k)
-         (subs (str k) 1)
-         (str k))
-       (when (contains? (:require sch) k)
-         [:span {:class (c [:ml 1] [:text :red-700])} "*"])]
-      (when-let [tp (:type v)]
-        [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])}
-         (str tp)])
-      (when-let [cfs (:confirms v)]
-        [:div "("
-         (for [cf cfs]
-           [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
-            (str cf)])
-         ")"])
-      [:div {:class (c [:text :gray-800])}
-       (:zen/desc v)]]
-     (when (not (empty? (dissoc v :confirms :zen/desc)))
-       [:div {:class (c [:pl 8])}
-        (render-schema ctx (dissoc v :confirms :zen/desc))])]))
+  [:div 
+   (when-let [cfs (:confirms sch)]
+     [:div "map: "
+      (for [cf cfs]
+        [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
+         (str cf)])
+      ""])
+   (for [[k v] (:keys sch)]
+     [:div
+      [:div {:class (c :flex [:space-x 2] :items-center)}
+       (type-icon ctx (:type v))
+       [:b {:class (c {:font-weight "500"})}
+        (if (keyword? k)
+          (subs (str k) 1)
+          (str k))
+        (when (contains? (:require sch) k)
+          [:span {:class (c [:ml 1] [:text :red-700])} "*"])]
+       (when-let [tp (:type v)]
+         [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])}
+          (str tp)])
+       (when-let [cfs (:confirms v)]
+         [:div (for [cf cfs]
+            [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
+             (str cf)])])]
+      (when-let [desc (:zen/desc v)]
+        [:div {:class (c :text-xs [:text :gray-600] [:ml 7])}
+         (subs desc 0 (min (count desc) 100))])
+      (when (not (empty? (dissoc v :confirms :zen/desc)))
+        [:div {:class (c [:pl 8])}
+         (render-schema ctx (dissoc v :confirms :zen/desc))])])])
 
 (defn render-zen-set [ctx sch]
   #_(when-let [evr (:every sch)]
@@ -230,7 +248,14 @@
 
 (defn render-zen-vector [ctx sch]
   (when-let [evr (:every sch)]
-    [:div [:b "vector " (when-let [tp (:type evr)] [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])} (str tp)]) " : "]
+    [:div [:b "vector "
+           (when-let [tp (:type evr)] [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])} (str tp)])
+           (when-let [cfs (:confirms evr)]
+             (for [cf cfs]
+               [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
+                (str cf)]))
+
+           " : "]
      [:div {:class (c [:ml 4])}
       (render-schema ctx evr)]]))
 
@@ -254,6 +279,9 @@
     (= 'zen/integer (:type sch)) ""
     (= 'zen/number (:type sch)) ""
     (= 'zen/boolean (:type sch)) ""
+    (= 'zen/datetime (:type sch)) ""
+    (= 'zen/date (:type sch)) ""
+    (nil? (:type sch)) ""
     (= 'zen/symbol (:type sch)) [:div {:class (c :flex [:space-x 1])}
                                  [:a {:href (symbol-url ctx 'zen/symbol)
                                       :class (c [:text :green-700])}
@@ -269,29 +297,98 @@
     (= 'zen/any (:type sch)) ""
     :else (edn ctx sch)))
 
-(defn symbol-page [ctx {{sym :sym*} :route-params}]
-  (let [tag-nm (str/join "/" sym)
-        tag-sch (zen/get-symbol ctx (symbol tag-nm))]
+(defn render-valueset [ctx {vs :values}]
+  (let [cols (sort (keys (first vs)))]
+    [:table
+     [:thead (for [col cols]
+               [:th {:class (c [:bg :gray-100] [:p 1] [:pr 4] :border-b :whitespace-no-wrap {:text-align "left" :font-weight "500"})}
+                (name col)])]
+     [:tbody
+      (for [v vs]
+        [:tr 
+         (for [col cols]
+           [:td {:class (c [:pl 0] [:pr 4] [:pt 1.5] [:pb 1] :border-b)}
+            (get v col)])])]]))
+
+(defn resolve-views [ctx tags]
+  (-> 
+   (->> (zen/get-tag ctx 'zen.doc/tag-view)
+        (mapv (fn [tv] (zen/get-symbol ctx tv)))
+        (reduce (fn [acc x]
+                  (if (contains? tags (:tag x))
+                    (conj acc x)
+                    acc))
+                []))
+   (conj {:zen/name 'zen.doc/view-for-edn
+          :title "edn"
+          :slag "edn"})))
+
+(defmulti tag-view (fn [ctx view model] (:zen/name view)))
+
+(defmethod tag-view
+  'zen.doc/view-for-schema
+  [ctx view model]
+  (render-schema ctx model))
+
+(defmethod tag-view
+  'zen.doc/view-for-valueset
+  [ctx view model]
+  (render-valueset ctx model))
+
+(defmethod tag-view
+  'zen.doc/view-for-edn
+  [ctx view model]
+  (edn ctx model))
+
+
+(defmethod tag-view
+  'zen.doc/view-for-tag
+  [ctx view model]
+  (let [tag-nm (:zen/name model)
+        tags (zen/get-tag ctx tag-nm)]
+    [:div {:class (c [:p 0])}
+     (for [t (sort tags)]
+       (let [desc (:zen/desc (zen/get-symbol ctx t))]
+         [:div {:class (c [:space-y 1] :border-b [:py 1])}
+          (edn ctx t) (when desc [:span {:class (c [:text :gray-600])}
+                                  desc])]))]))
+
+
+(defn symbol-page [ctx {{sym :sym*} :route-params params :params :as req}]
+  (let [nm (str/join "/" sym)
+        model (zen/get-symbol ctx (symbol nm))
+        views (resolve-views ctx (:zen/tags model))
+        cur-view (if-let [v (:view params)]
+                   (->> views (filter (fn [x] (= (:slag x) v))) first)
+                   (first views))]
+
     [:div
      [:div {:class (c :text-2xl :font-bold :border-b [:mb 4]
                       :items-baseline
                       :flex [:space-x 3]
                       {:vertical-align "baseline"})}
-      [:div tag-nm]
+      [:div nm]
       [:div
-       (for [t (:zen/tags tag-sch)]
+       (for [t (:zen/tags model)]
          [:a {:class (c [:mr 2] :text-xl [:text :gray-500] {:font-weight "400" :vertical-align "baseline"})
               :href (symbol-url ctx t)}
           "#" (str t)])]]
-     [:p {:class (c [:text :gray-700])}(:zen/desc tag-sch)]
+
+     [:p {:class (c [:text :gray-700])}(:zen/desc model)]
      [:br]
-     (when (contains? (:zen/tags tag-sch) 'zen/schema)
-       [:div 
-        (render-schema ctx tag-sch)
-        [:br]
-        [:hr]])
-     [:br]
-     (edn ctx (dissoc tag-sch :zen/file :zen/name))]))
+
+     [:div {:class (c :flex :w-full [:mt 2])}
+      [:div {:class (c [:w 8] :border-b)}]
+      (for [v views]
+        [:a {:class (cls
+                     (c :flex-1 [:py 1] :border :text-center [:bg :gray-200] [:text :gray-600])
+                     (when (= cur-view v)
+                       (c [:text :gray-900]  {:border-bottom-color "transparent" :background-color "white"})))
+             :href (str "?view=" (:slag v))}
+         (:title v)])
+      [:div {:class (c [:w 8] :border-b)}]]
+     [:div {:class (c :border [:px 10] [:py 8] {:border-top "none"})}
+      (tag-view ctx cur-view model)]]))
 
 (def h1 (c :text-xl))
 
@@ -367,18 +464,23 @@
       [(subs uri 0 (- (count uri) (inc (count ext)))) (keyword ext)]
       [uri :html])))
 
+(defn form-decode [s]
+  (when s
+    (clojure.walk/keywordize-keys (ring.util.codec/form-decode s))))
+
 (defn dispatch [ctx {uri :uri meth :request-method :as req}]
   (or (handle-static req)
       (let [[uri ext] (parse-uri uri)]
         (println ">>>" meth uri ext)
-        (if-let [{{handler :fn rext :ext} :match params :params} (route-map.core/match [meth uri] routes)]
-          (if (or (= rext ext) (and (set? rext) (contains? rext ext)))
-            (let [resp (handler ctx (assoc req :route-params params :ext ext))]
-              (if (= ext :html)
-                (html ctx resp)
-                resp))
-            (html ctx [:div [:h1 "Not supported extension: " (pr-str ext) ", expected " (pr-str rext)]]))
-          (html ctx [:div [:h1 "Not Found"] (edn ctx req)])))))
+        (let [params (form-decode (:query-string req))]
+          (if-let [{{handler :fn rext :ext} :match route-params :params} (route-map.core/match [meth uri] routes)]
+            (if (or (= rext ext) (and (set? rext) (contains? rext ext)))
+              (let [resp (handler ctx (assoc req :route-params route-params :ext ext :params params))]
+                (if (= ext :html)
+                  (html ctx resp)
+                  resp))
+              (html ctx [:div [:h1 "Not supported extension: " (pr-str ext) ", expected " (pr-str rext)]]))
+            (html ctx [:div [:h1 "Not Found"] (edn ctx req)]))))))
 
 (defn start [ctx {port :port nss :ns main-ns :main}]
   (doseq [n nss] (zen/read-ns ctx n))
@@ -424,6 +526,9 @@
 
   (start ctx {:ns #{'zen 'zen-doc} :main 'zen-doc/index})
   (zen/read-ns ctx 'zen-doc)
+  (zen/read-ns ctx 'zen.doc)
+
+  (zen/get-tag ctx 'zen.doc/tag-view)
 
   (keys @ctx)
 
