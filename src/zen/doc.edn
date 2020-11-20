@@ -1,0 +1,32 @@
+{ns zen.doc
+
+ view {:zen/tags #{zen/tag zen/schema}
+       :zen/desc "Register view for specific tags"
+       :type zen/map
+       :values {:type zen/any}}
+
+ schema {:zen/tags #{view}}
+
+ page-engine #{:zen/tags #{zen/tag}}
+
+ md {:zen/tags #{page-engine zen/schema}
+     :type zen/map
+     :keys {:file {:type zen/string}}}
+
+ html {:zen/tags #{page-engine zen/schema}
+       :type zen/map
+       :keys {:file {:type zen/string}}}
+ page {:zen/tags #{zen/tag zen/schema}
+       :type zen/map
+       :schema-key {:key :type}
+       :keys {:type {:type zen/symbol :tags #{schema-engine}}}}
+
+ site {:zen/tags #{zen/tag zen/schema}
+       :zen/docs "Register site entrypoint"
+       :type zen/map
+       :keys {:title {:type zen/string}
+              :url   {:type zen/string}
+              :views {:type zen/set :values {:type zen/symbol}}
+              :top-menu {:type zen/vector :every {:type zen/eny}}}}
+
+ }

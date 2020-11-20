@@ -1,0 +1,17 @@
+{ns zen-doc
+ import #{zen.doc}
+
+ index-page
+ {:zen/tags #{zen.doc/page}
+  :type zen.doc/md
+  :file "index.md"}
+
+ index
+ {:zen/tags #{zen.doc/site}
+  :title "zen-lang/zen"
+  :logo "zen.jpeg"
+  :url "https://github.com/zen-lang/zen"
+  :views #{zen.doc/schema}
+  :index-page index-page
+  ;; :top-menu []
+  }}

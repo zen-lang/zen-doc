@@ -9,50 +9,18 @@
    [route-map.core]
    [clojure.java.shell]
    [org.httpkit.server]
-   [clojure.string :as str])
+   [clojure.string :as str]
+   [clojure.java.io :as io]
+   [zen.doc.md])
   (:gen-class))
 
 (def h2 (c :border-b [:py 2] :font-bold))
 
-(defn url [ctx & pth]
-  (str (or (:base-url ctx) "") "/" (str/join "/" pth) ".html"))
+(defn url [ctx pth & [ext]]
+  (str (or (:base-url @ctx) "") "/" (str/join "/" pth) (when ext (str "." (name ext)))))
 
-
-(defn layout [{ztx :ztx :as ctx} & content]
-  (hiccup.core/html
-   [:html
-    [:head
-     [:meta {:charset "utf-8"}]
-     [:link {:rel "stylesheet" :href "/zen.css"}]
-     [:title "zen"]]
-    [:body {:class (c [:p 0])}
-     [:div {:class (c :flex [:space-x 6])}
-      [:div {:class (c :border [:px 4]
-                       [:py 2]
-                       [:w 80]  :text-sm [:text :gray-700] [:bg :gray-100])}
-       [:h2 {:class h2} "Tags"]
-       [:div {:class (c [:pl 2])}
-        (for [[ns _] (->> (:tags @ztx) (sort-by first))]
-          [:div [:a {:href (url ctx "tags" ns)} (str ns)]])]
-
-       [:h2 {:class h2} "Ns"]
-       [:div {:class (c [:pl 2])}
-        (for [[ns _] (->> (:ns @ztx) (sort-by first))]
-          [:div [:a {:href (url ctx "ns" ns)} (str ns)]])]
-
-       [:h2 {:class h2} "Symbols"]
-       [:div {:class (c [:pl 2])}
-        (for [[ns _] (->> (:symbols @ztx) (sort-by first))]
-          [:div [:a {:href (url ctx "symbols" ns)} (str ns)]])]]
-      [:div content]]]]))
-
-(defn index [{ztx :ztx} req]
-  [:div "index"])
-
-(defn zen-css [_ _]
-  {:status 200
-   :body (stylo.core/compile-styles @stylo.core/styles)
-   :headers {"content-type" "text/css"}})
+(defn symbol-url [ctx sym]
+  (url ctx ["symbols" sym] :html))
 
 (defn edn [ctx x]
   (cond
@@ -78,54 +46,289 @@
     (keyword? x) [:b {:class (c [:mr 2] :font-bold [:text :green-700])
                       :title (pr-str (meta x))}
                   (pr-str x)]
-    (symbol? x)  [:a {:class (c [:text :blue-800] [:mr 2]) :href (url ctx "symbols" (str x))}  (pr-str x)]
+    (symbol? x)  [:a {:class (c [:text :blue-800] [:mr 2]) :href (url ctx ["symbols" (str x)] :html)}  (pr-str x)]
     :else [:div "?" (pr-str x)]))
 
 
-(defn ns-page [{ztx :ztx :as ctx} {{ns :ns} :route-params}]
-  (let [sch (get-in @ztx [:ns (symbol ns)])]
+(defn symbol-icon [ctx v]
+  (let [tgs (:tags v)]
+    [:div {:class
+           (str/join " "
+                     (mapv name
+                           [(c [:w 3] [:h 3] [:mr 1]
+                               {:border-radius "100%" :font-size "9px" :text-align "center" :line-height "0.75rem"})
+                            (cond
+                              (contains? tgs 'zen/type)     (c  [:bg :green-400])
+                              (contains? tgs 'zen/tag)      (c  [:bg :orange-300])
+                              (contains? tgs 'zen/property) (c  [:bg :blue-300])
+                              (contains? tgs 'zen/schema)   (c  [:bg :green-300])
+                              :else                         (c :border [:bg :gray-300]))]))
+           :title (str/join " " tgs)}
+     (cond
+         (contains? tgs 'zen/tag) "#"
+         (contains? tgs 'zen/type)  "T"
+         (contains? tgs 'zen/schema) "S")]))
+
+(defn render-tree [ctx syms]
+  [:div {:class (c [:pl 4])}
+   (for [[k v] (sort-by first syms)]
+     [:a {:href (when-let [nm (:name v)] (symbol-url ctx nm))
+          :class (c :block :flex :items-baseline :align-baseline [:py 0.25] [:text :gray-700]
+                    [:hover [:text :gray-900]])}
+      (when-let [tgs (:tags v)]
+        (symbol-icon ctx v))
+      [:div (str k)]
+      (when-let [ch (:children v)]
+        [:span "/"
+         (render-tree ctx ch)])])])
+
+(defn left-sidebar [ctx]
+  (let [syms (->>
+              (:symbols @ctx)
+              (sort-by first)
+              (reduce (fn [acc [nm data]]
+                        (let [pth (interpose :children (str/split (str nm) #"[./]"))]
+                          (assoc-in acc pth {:name nm :path pth :tags (:zen/tags data) :desc (:zen/desc data)})))
+                      {}))]
+
+    [:div {:class (c [:px 4] [:py 2] [:w 80] [:w-min 80]
+                     :text-sm [:text :gray-700] [:bg :gray-100])}
+     [:div {:class (c [:pl 2])}
+      (render-tree ctx syms)]]))
+
+(def top-menu-link (c [:text :red-600]))
+
+(defn top-menu [ctx]
+  (let [main (:main @ctx)]
+    [:div {:class (c :flex :border-b [:px 0] [:py 4] {:box-shadow "0 3px 8px 0 rgba(116, 129, 141, 0.1)"})}
+     [:a {:class (c [:w 80] :block :text-center :text-xl {:border-right "1px solid #ddd"})
+          :href (url ctx ["index"] :html)}
+      (when-let [logo (:logo main)]
+        [:img {:class (c :inline-block  [:pr 2] {:height "20px"})
+               :src (url ctx ["static" logo])}])
+      (or (:title main) "Title")]
+     [:div {:class (c :flex [:space-x 4] [:px 12])}
+      [:a {:class top-menu-link :href (url ctx ["tags"] :html)} "Tags"]
+      [:a {:class top-menu-link :href (url ctx ["symbols"] :html)} "Symbols"]
+      [:a {:class top-menu-link :href (url ctx ["ns"] :html)} "Namespaces"]]]))
+
+(defn layout [ctx & content]
+  (let [main (:main @ctx)]
+    (hiccup.core/html
+     [:html
+      [:head
+       [:meta {:charset "utf-8"}]
+       [:link {:rel "stylesheet" :href "/zen.css"}]
+       [:title (:title main)]]
+      [:body {:class (c [:p 0] [:m 0])}
+       (top-menu ctx)
+       [:div {:class (c :flex [:space-x 6])}
+        (left-sidebar ctx)
+        [:div {:class (c [:p 4])} content]]]])))
+
+(defmulti render-page (fn [_ {tp :type}] tp))
+
+(defmethod render-page 'zen.doc/md
+  [_ {f :file}]
+  (when-let [res (io/resource f)]
+    (zen.doc.md/parse (slurp res))))
+
+(defmethod render-page 'zen.doc/html
+  [_ {f :file}]
+  [:pre
+   (slurp (io/resource f))])
+
+(defn index [ctx req]
+  (let [main (:main @ctx)
+        page (when-let [ip (:index-page main)]
+                (zen/get-symbol ctx ip))]
+    (render-page ctx page)))
+
+(defn zen-css [_ _]
+  {:status 200
+   :body (stylo.core/compile-styles @stylo.core/styles)
+   :headers {"content-type" "text/css"}})
+
+
+(defn ns-page [ctx {{ns :ns} :route-params}]
+  (let [sch (get-in @ctx [:ns (symbol ns)])]
     [:div
      [:div {:class (c :text-xl :font-bold :border-b [:mb 4]) } ns]
      (edn ctx sch)]))
 
 (defn ns-index [ctx req]
-  [:div "ns idx"]
-  )
+  [:div "ns idx"])
 
-(defn tags-page [{ztx :ztx :as ctx} {{sym :sym*} :route-params}]
+(defn tags-page [ctx {{sym :sym*} :route-params}]
   (let [tag-nm (str/join "/" sym)
         tag-sym (symbol tag-nm)
-        tag-sch (zen/get-symbol ztx tag-sym)
-        tags (zen/get-tag ztx tag-sym)]
+        tag-sch (zen/get-symbol ctx tag-sym)
+        tags (zen/get-tag ctx tag-sym)]
     [:div
      [:div {:class (c :text-xl :font-bold :border-b [:mb 4]) } tag-nm]
      [:h2 {:class h2} "Referred from:"]
      [:div
       (for [t (sort tags)]
-        (let [desc (:zen/desc (zen/get-symbol ztx t))]
+        (let [desc (:zen/desc (zen/get-symbol ctx t))]
           [:div {:class (c [:space-y 1] [:mr 3])}
            (edn ctx t) (when desc [:span {:class (c [:text :gray-600])} (str ": " desc)])]))]
      [:h2 {:class h2} "Definition"]
      (edn ctx tag-sch)]))
 
-(defn symbol-page [{ztx :ztx :as ctx} {{sym :sym*} :route-params}]
-  (let [tag-nm (str/join "/" sym)
-        tag-sch (zen/get-symbol ztx (symbol tag-nm))]
+(declare render-schema)
+
+(defn type-icon [ctx tp]
+  [:div {:class
+         (str/join " "
+                   (mapv name
+                         [(c [:w 4] [:h 4] [:mr 1]
+                             {:border-radius "100%" :font-size "10px" :text-align "center" :line-height "1rem"})
+                          (cond
+                            (= tp 'zen/set) (c [:bg :blue-300])
+                            (= tp 'zen/map) (c [:bg :green-300])
+                            (= tp 'zen/case) (c [:bg :red-500])
+                            (= tp 'zen/string) (c [:bg :orange-300])
+                            (= tp 'zen/keyword) (c [:bg :orange-300])
+                            (= tp 'zen/number) (c [:bg :orange-300])
+                            :else  (c [:bg :gray-300]))]))}
+   (cond
+     (= tp 'zen/set) "#"
+     (= tp 'zen/map) "{}"
+     (= tp 'zen/case) "?"
+     :else (first (last (str/split (str tp) #"/"))))])
+
+(defn render-zen-map [ctx sch]
+  (for [[k v] (:keys sch)]
     [:div
-     [:div {:class (c :text-xl :font-bold :border-b [:mb 4]) } tag-nm]
-     (edn ctx tag-sch)]))
+     [:div {:class (c :flex [:space-x 2] :items-center)}
+      (type-icon ctx (:type v))
+      [:b {:class (c {:font-weight "500"})}
+       (if (keyword? k)
+         (subs (str k) 1)
+         (str k))
+       (when (contains? (:require sch) k)
+         [:span {:class (c [:ml 1] [:text :red-700])} "*"])]
+      (when-let [tp (:type v)]
+        [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])}
+         (str tp)])
+      (when-let [cfs (:confirms v)]
+        [:div "("
+         (for [cf cfs]
+           [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
+            (str cf)])
+         ")"])
+      [:div {:class (c [:text :gray-800])}
+       (:zen/desc v)]]
+     (when (not (empty? (dissoc v :confirms :zen/desc)))
+       [:div {:class (c [:pl 8])}
+        (render-schema ctx (dissoc v :confirms :zen/desc))])]))
+
+(defn render-zen-set [ctx sch]
+  #_(when-let [evr (:every sch)]
+    [:div [:b "every =>"]
+     (render-schema ctx evr)]))
+
+(defn render-zen-vector [ctx sch]
+  (when-let [evr (:every sch)]
+    [:div [:b "vector " (when-let [tp (:type evr)] [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])} (str tp)]) " : "]
+     [:div {:class (c [:ml 4])}
+      (render-schema ctx evr)]]))
+
+(defn render-zen-case [ctx sch]
+  #_(when-let [cs (:case sch)]
+    [:div
+     (for [{w :when th :then} cs]
+       [:div
+        [:div {:class (c :flex)} [:b "when"] (render-schema ctx w)] 
+        (when th
+          [:div {:class (c [:ml 2])} [:b "then"] (render-schema ctx th)])])]))
+
+(defn render-schema [ctx sch]
+  (cond
+    (= 'zen/map (:type sch)) (render-zen-map ctx sch)
+    (= 'zen/set (:type sch)) (render-zen-set ctx sch)
+    (= 'zen/vector (:type sch)) (render-zen-vector ctx sch)
+    (= 'zen/case (:type sch)) (render-zen-case ctx sch)
+    (= 'zen/keyword (:type sch)) ""
+    (= 'zen/string (:type sch)) ""
+    (= 'zen/integer (:type sch)) ""
+    (= 'zen/number (:type sch)) ""
+    (= 'zen/boolean (:type sch)) ""
+    (= 'zen/symbol (:type sch)) [:div {:class (c :flex [:space-x 1])}
+                                 [:a {:href (symbol-url ctx 'zen/symbol)
+                                      :class (c [:text :green-700])}
+                                  "zen/symbol"]
+                                 (when-let [tgs (:tags sch)]
+                                   [:div {:class (c :flex [:space-x 1])}
+                                    [:div "#{"]
+                                    (for [t tgs]
+                                      [:a {:class (c [:mr 2] :class (c [:text :blue-700]))
+                                           :href (symbol-url ctx t)}
+                                       (str t)])
+                                    [:div "}"]])]
+    (= 'zen/any (:type sch)) ""
+    :else (edn ctx sch)))
+
+(defn symbol-page [ctx {{sym :sym*} :route-params}]
+  (let [tag-nm (str/join "/" sym)
+        tag-sch (zen/get-symbol ctx (symbol tag-nm))]
+    [:div
+     [:div {:class (c :text-2xl :font-bold :border-b [:mb 4]
+                      :items-baseline
+                      :flex [:space-x 3]
+                      {:vertical-align "baseline"})}
+      [:div tag-nm]
+      [:div
+       (for [t (:zen/tags tag-sch)]
+         [:a {:class (c [:mr 2] :text-xl [:text :gray-500] {:font-weight "400" :vertical-align "baseline"})
+              :href (symbol-url ctx t)}
+          "#" (str t)])]]
+     [:p {:class (c [:text :gray-700])}(:zen/desc tag-sch)]
+     [:br]
+     (when (contains? (:zen/tags tag-sch) 'zen/schema)
+       [:div 
+        (render-schema ctx tag-sch)
+        [:br]
+        [:hr]])
+     [:br]
+     (edn ctx (dissoc tag-sch :zen/file :zen/name))]))
+
+(def h1 (c :text-xl))
+
+(def block-link (c :inline-block [:m 2] [:p 2]
+                   :border
+                   :rounded
+                   :float [:w-min 46]
+                   [:text :gray-600]
+                   [:hover [:bg :gray-100] [:text :gray-700]]))
 
 (defn tags-index [ctx req]
-  [:div (pr-str req)])
+  [:div
+   [:h1 {:class h1} "Tags"]
+   [:div 
+    (for [[ns _] (->> (:tags @ctx) (sort-by first))]
+      [:a {:href (url ctx ["tags" ns] :html)
+           :class block-link} (str ns)])]])
 
-(defn tags-gen [{ztx :ztx}]
-  (keys (:tags @ztx)))
 
-(defn ns-gen [{ztx :ztx}]
-  (keys (:ns @ztx)))
 
-(defn symbols-gen [{ztx :ztx}]
-  (keys (:symbols @ztx)))
+(defn tags-gen [ctx]
+  (keys (:tags @ctx)))
+
+(defn ns-gen [ctx]
+  (keys (:ns @ctx)))
+
+(defn symbols-gen [ctx]
+  (keys (:symbols @ctx)))
+
+(defn symbols-index [ctx req]
+  [:div
+   [:h1 {:class h1} "Symbols"]
+   [:div
+    (for [[ns _] (->> (:symbols @ctx) (sort-by first))]
+      [:a {:href (url ctx ["symbols" ns] :html)
+           :class block-link }
+       (str ns)])]])
 
 (def routes
   {:GET {:fn index :ext :html}
@@ -136,9 +339,9 @@
                        :GET {:ext :html :fn tags-page}}}
    "ns"      {[:ns] {:gen ns-gen
                      :GET {:ext :html :fn ns-page}}}
-   "symbols" {[:sym*] {:gen symbols-gen
+   "symbols" {:GET {:ext :html :fn symbols-index}
+              [:sym*] {:gen symbols-gen
                        :GET {:ext :html :fn symbol-page}}}})
-
 
 (defn html [ctx content]
   {:body (layout ctx content)
@@ -149,7 +352,7 @@
   (when (and (#{:get :head} meth)
              (or (str/starts-with? (or uri "") "/static/")
                  (str/starts-with? (or uri "") "/favicon.ico")))
-    (let [opts {:root "public"
+    (let [opts {:root "static"
                 :index-files? true
                 :allow-symlinks? true}
           path (subs (ring.util.codec/url-decode (:uri req)) 8)]
@@ -177,9 +380,11 @@
             (html ctx [:div [:h1 "Not supported extension: " (pr-str ext) ", expected " (pr-str rext)]]))
           (html ctx [:div [:h1 "Not Found"] (edn ctx req)])))))
 
-(defn start [ctx {port :port}]
-  (let [srv (org.httpkit.server/run-server #(dispatch @ctx %) {:port (or port 4321)})]
-    (swap! ctx assoc :web/server srv)
+(defn start [ctx {port :port nss :ns main-ns :main}]
+  (doseq [n nss] (zen/read-ns ctx n))
+  (let [main (zen/get-symbol ctx main-ns)
+        srv (org.httpkit.server/run-server #(dispatch ctx %) {:port (or port 4321)})]
+    (swap! ctx assoc :web/server srv :main main)
     :ok))
 
 (defn gen-route [ctx pth params route]
@@ -203,7 +408,6 @@
             (doseq [it (gen ctx)]
               (gen-route ctx (conj pth it) (assoc params param it) v)))
           (println "SKIP:" k v))
-
         (string? k) (gen-route ctx (conj pth k) params v)))))
 
 (defn build [{base-url :base-url ns :ns :as ctx}]
@@ -214,20 +418,14 @@
   (println "Hello"))
 
 (comment
-  (do
-    (defonce ctx (atom {}))
-
-    (do (swap! ctx (fn [x] (assoc x :self ctx))) :ok)
-    (do (swap! ctx assoc :ztx (zen.core/new-context)) :ok)
-    (zen.core/read-ns (:ztx @ctx) 'zen.tests.schema)
-
-    )
+  (defonce ctx (zen/new-context))
 
   (build @ctx)
 
-  (:ztx @ctx)
+  (start ctx {:ns #{'zen 'zen-doc} :main 'zen-doc/index})
+  (zen/read-ns ctx 'zen-doc)
 
-  (start ctx {})
+  (keys @ctx)
 
 
   )
