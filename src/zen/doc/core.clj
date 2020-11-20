@@ -217,7 +217,8 @@
         [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
          (str cf)])
       ""])
-   (for [[k v] (:keys sch)]
+   (for [[k v] (->> (:keys sch)
+                    (sort-by (fn [[_ v]] (:row (meta v)))))]
      [:div
       [:div {:class (c :flex [:space-x 2] :items-center)}
        (type-icon ctx (:type v))
