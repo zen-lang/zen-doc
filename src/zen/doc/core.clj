@@ -191,18 +191,21 @@
          (str/join " "
                    (mapv name
                          [(c [:w 4] [:h 4] [:mr 1]
-                             {:border-radius "100%" :font-size "10px" :text-align "center" :line-height "1rem"})
+                             :border
+                             [:bg :gray-200]
+                             {:border-radius "4px" :font-size "11px"
+                              :border "1px solid #ddd"
+                              :line-height "13px"
+                              :text-align "center"})
                           (cond
-                            (= tp 'zen/set) (c [:bg :blue-300])
-                            (= tp 'zen/map) (c [:bg :green-300])
-                            (= tp 'zen/case) (c [:bg :red-500])
-                            (= tp 'zen/string) (c [:bg :orange-300])
-                            (= tp 'zen/datetime) (c [:bg :orange-300])
-                            (= tp 'zen/date) (c [:bg :orange-300])
-                            (= tp 'zen/boolean) (c [:bg :orange-300])
-                            (= tp 'zen/keyword) (c [:bg :orange-300])
-                            (= tp 'zen/number) (c [:bg :orange-300])
-                            :else  (c [:bg :gray-300]))]))}
+                            (= tp 'zen/set) (c [:text :blue-800])
+                            (= tp 'zen/map) (c [:text :green-800])
+                            (= tp 'zen/case) (c [:text :red-800])
+                            (contains? #{'zen/string 'zen/datetime
+                                         'zen/date 'zen/boolean
+                                         'zen/keyword 'zen/number} tp)
+                            (c [:text :orange-800])
+                            :else  (c [:bg :gray-200]))]))}
    (cond
      (= tp 'zen/set) "#"
      (= tp 'zen/map) "{}"
@@ -219,27 +222,29 @@
       ""])
    (for [[k v] (->> (:keys sch)
                     (sort-by (fn [[_ v]] (:row (meta v)))))]
-     [:div
-      [:div {:class (c :flex [:space-x 2] :items-center)}
-       (type-icon ctx (:type v))
-       [:b {:class (c {:font-weight "500"})}
-        (if (keyword? k)
-          (subs (str k) 1)
-          (str k))
-        (when (contains? (:require sch) k)
-          [:span {:class (c [:ml 1] [:text :red-700])} "*"])]
-       (when-let [tp (:type v)]
-         [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])}
-          (str tp)])
-       (when-let [cfs (:confirms v)]
-         [:div (for [cf cfs]
-            [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
-             (str cf)])])]
+     [:div {:class (c {:border-left "1px solid #ddd"})}
+      [:div {:class (c :flex :items-center)}
+       [:div {:class (c :border-b [:w 4])}]
+       [:div {:class (c :flex :items-center [:space-x 1])}
+        (type-icon ctx (:type v))
+        [:b {:class (c {:font-weight "400"} [:mr 2])}
+         (if (keyword? k)
+           (subs (str k) 1)
+           (str k))
+         (when (contains? (:require sch) k)
+           [:span {:class (c [:ml 1] [:text :red-700])} "*"])]
+        (when-let [tp (:type v)]
+          [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])}
+           (str tp)])
+        (when-let [cfs (:confirms v)]
+          [:div (for [cf cfs]
+                  [:a {:href (symbol-url ctx cf) :class (c [:text :green-700])}
+                   (str cf)])])]]
       (when-let [desc (:zen/desc v)]
-        [:div {:class (c :text-xs [:text :gray-600] [:ml 7])}
+        [:div {:class (c :text-xs [:text :gray-600] [:ml 11])}
          (subs desc 0 (min (count desc) 100))])
       (when (not (empty? (dissoc v :confirms :zen/desc)))
-        [:div {:class (c [:pl 8])}
+        [:div {:class (c [:pl 6])}
          (render-schema ctx (dissoc v :confirms :zen/desc))])])])
 
 (defn render-zen-set [ctx sch]
@@ -249,7 +254,8 @@
 
 (defn render-zen-vector [ctx sch]
   (when-let [evr (:every sch)]
-    [:div [:b "vector "
+    [:div {:class (c [:ml 7])}
+     [:span "vector "
            (when-let [tp (:type evr)] [:a {:href (symbol-url ctx tp) :class (c [:text :blue-700])} (str tp)])
            (when-let [cfs (:confirms evr)]
              (for [cf cfs]
